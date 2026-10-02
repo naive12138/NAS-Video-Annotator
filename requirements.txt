@@ -1,0 +1,14 @@
+# NAS 视频内容分析与标注系统 —— 依赖清单
+# 注意：ffmpeg / ffprobe 是外部二进制，不在此处安装，需随软件附带或加入 PATH。
+
+# GUI
+PySide6==6.11.2
+
+# HTTP（Jellyfin / Ollama）使用 stdlib urllib，无需额外依赖
+
+# 语音转写
+faster-whisper>=1.0
+
+# 场景切分（依赖 numpy + opencv-python，会自动带入）
+PySceneDetect>=0.6.4
+scenedetect[opencv]>=0.6.4
