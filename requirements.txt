@@ -10,5 +10,4 @@ PySide6==6.11.2
 faster-whisper>=1.0
 
 # 场景切分（依赖 numpy + opencv-python，会自动带入）
-PySceneDetect>=0.6.4
 scenedetect[opencv]>=0.6.4

@@ -12,6 +12,7 @@ import os
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 
 def main() -> int:
@@ -57,6 +58,21 @@ def main() -> int:
             dst = os.path.join(project, "dist", "NAS-Video-Annotator", "初次使用说明.txt")
             shutil.copy(guide, dst)
             print(f"[build] 已复制初次使用说明 -> {dst}")
+
+        # 补齐 Windows 运行库（VC++ Redistributable 等），确保目标机器无需预装即可运行
+        try:
+            sys.path.insert(0, project)
+            from integrate_runtime import integrate, verify
+            internal = Path(project) / "dist" / "NAS-Video-Annotator" / "_internal"
+            copied, missing = integrate(internal)
+            for n in copied:
+                print(f"[runtime] + {n}")
+            for n in missing:
+                print(f"[runtime] - 未找到 {n}")
+            for p in verify(internal):
+                print(f"[runtime] ! {p}")
+        except Exception as e:  # noqa: BLE001
+            print(f"[runtime] 运行库补齐失败（不阻断打包）: {e}")
     return rc
 
 

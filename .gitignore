@@ -1,0 +1,4 @@
+/.deps/
+__pycache__/
+/build/
+/dist
