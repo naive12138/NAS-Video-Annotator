@@ -29,6 +29,7 @@ NAS 视频内容分析与标注 —— 初次使用说明
            Ollama 默认  http://127.0.0.1:11434
            llama.cpp 默认 http://127.0.0.1:8080
        - 点“获取模型”，下拉框里选视觉模型、文本模型
+       - ASR 模型：填模型名（默认 small），点“下载模型”（走国内镜像，首次约几百 MB）
        - 点页面底部“测试”，确认各项都是 ✓ 就绪
        - 数据源选“本地路径”（选媒体根目录）或“Jellyfin”（填地址和 API Key）
     3. FFmpeg 区块：显示“✓ 已就绪”即可；显示“✗”就点“一键下载 FFmpeg”
@@ -50,10 +51,26 @@ NAS 视频内容分析与标注 —— 初次使用说明
     1. “获取模型”报 404 → 服务地址/端口填错，或该服务不是 Ollama（软件已兼容 OpenAI 接口）
     2. 分析报“找不到文件” → 视频路径问题；Jellyfin 源会走 API 流地址，无需挂载盘符
     3. ffmpeg 检测不到 → 放到 exe 同目录 或 data\bin\，再点“重新检测”
-    4. 第一次转写会下载语音模型（约几百 MB），存放在 data\hf_cache\
+    4. ASR 模型要在“设置”页点“下载模型”手动下载（国内镜像，约几百 MB），存放在 data\asr_models\
     5. Jellyfin 拉取超时 → 检查地址、API Key，或库太大稍后再试
 
 八、数据都在哪里
     全部在 exe 同目录的 data 文件夹内：config.json（配置）、nasva.db（数据库）、
-    frames（帧缓存，分析完自动清理）、bin（ffmpeg）、hf_cache（转写模型）。
+    frames（帧缓存，分析完自动清理）、bin（ffmpeg）、asr_models（转写模型）。
     不要删除 nasva.db 和 config.json，那是你的配置和成果。
+
+九、开发者：如何编译打包
+    1. 环境：Python 3.12（64 位），先装 PyInstaller：
+         pip install pyinstaller
+    2. 把依赖装进 .deps 目录（app 与 build.py 都从这里加载）：
+         python -m pip install -r requirements.txt --target .deps
+       requirements.txt 包含 PySide6、faster-whisper、scenedetect[opencv]，
+       会自动带入 numpy / opencv-python / ctranslate2 / onnxruntime / av 等。
+    3. （可选）让 ffmpeg、ffprobe 出现在系统 PATH 中，打包时会自动附带到 exe；
+       没有也不影响打包，运行时可在“设置”页一键下载 FFmpeg。
+    4. 在项目根目录执行：
+         python build.py
+       注意：build.py 需要同目录下存在 integrate_runtime.py（用于补齐 VC++ 运行库）。
+       若提示 No module named 'integrate_runtime'，说明该文件缺失；这不影响出包，
+       但会跳过运行库补齐这一步，exe 在其他未装 VC++ 运行库的机器上可能无法启动。
+    5. 产物在 dist\NAS-Video-Annotator\，把整个文件夹拷走即可运行。
