@@ -67,6 +67,23 @@ class PromptTest(unittest.TestCase):
         self.assertLess(len(p), 2000)  # 总长度受控
 
 
+class ChineseDetectTest(unittest.TestCase):
+    def test_chinese(self):
+        self.assertTrue(summarize.is_chinese_text("这是一段中文"))
+
+    def test_japanese_kana(self):
+        self.assertFalse(summarize.is_chinese_text("これは日本語のテキストです"))
+
+    def test_japanese_kanji_with_kana(self):
+        self.assertFalse(summarize.is_chinese_text("私の名前は田中です"))
+
+    def test_english(self):
+        self.assertFalse(summarize.is_chinese_text("hello world"))
+
+    def test_empty(self):
+        self.assertTrue(summarize.is_chinese_text(""))
+
+
 class ParseVisionTest(unittest.TestCase):
     def test_clean_json(self):
         desc, people = summarize.parse_vision('{"description": "夜景街头", "people": 2}')

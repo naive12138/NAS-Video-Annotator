@@ -26,7 +26,7 @@ class AboutDialog(QDialog):
         name.setAlignment(Qt.AlignCenter)
         name.setStyleSheet("font-size: 15px; color: #e5e5f0;")
 
-        ver = QLabel("v1.1.0 · 本地运行")
+        ver = QLabel("v1.1.1 · 本地运行")
         ver.setAlignment(Qt.AlignCenter)
         ver.setStyleSheet("font-size: 12px; color: #8a8aa0;")
 

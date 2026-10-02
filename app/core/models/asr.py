@@ -96,9 +96,10 @@ def download_model(cfg, model_name: str, on_progress=None) -> Path:
 
 
 def transcribe(audio_path: str | Path, model_path: str | Path,
-               device: str = "cpu", compute_type: str = "int8") -> list[dict]:
-    """转写音轨，返回 [{"start": s, "end": e, "text": t}, ...]（时间戳秒）。
+               device: str = "cpu", compute_type: str = "int8") -> tuple[list[dict], dict]:
+    """转写音轨，返回 (片段列表, 识别信息)。
 
+    片段列表形如 [{"start": s, "end": e, "text": t}, ...]；识别信息含 language/duration。
     model_path 为本地模型目录；未下载时抛 ASRError，由上层静默跳过。
     """
     try:
@@ -110,9 +111,42 @@ def transcribe(audio_path: str | Path, model_path: str | Path,
     if not (p / "model.bin").exists():
         raise ASRError(f"ASR 模型未下载（{p}），请在“设置”页下载")
 
+    # 自己读 WAV 成 float32 数组，绕开 av 解码（av 版本兼容问题可能把音频读成静音）
+    samples, sample_rate = _read_wav_samples(str(audio_path))
     model = WhisperModel(str(p), device=device, compute_type=compute_type)
-    segments, _info = model.transcribe(str(audio_path))
-    return _segments_to_dicts(segments)
+    segments, info = model.transcribe(samples)
+    segs = _segments_to_dicts(segments)
+    model_bin = p / "model.bin"
+    model_mb = round(model_bin.stat().st_size / (1024 * 1024), 1) if model_bin.exists() else 0.0
+    info_dict = {
+        "language": getattr(info, "language", ""),
+        "language_probability": getattr(info, "language_probability", None),
+        "duration": getattr(info, "duration", None),
+        "audio_seconds": round(len(samples) / sample_rate, 2) if sample_rate else 0.0,
+        "model_size_mb": model_mb,
+    }
+    return segs, info_dict
+
+
+def _read_wav_samples(wav_path: str) -> tuple:
+    """用标准库 wave + numpy 读 WAV 为 float32 单声道样本，返回 (样本数组, 采样率)。"""
+    import wave
+    import numpy as np
+
+    with wave.open(wav_path, "rb") as w:
+        sr = w.getframerate()
+        ch = w.getnchannels()
+        sw = w.getsampwidth()
+        raw = w.readframes(w.getnframes())
+    if sw == 2:
+        x = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+    elif sw == 1:
+        x = (np.frombuffer(raw, dtype=np.uint8).astype(np.float32) - 128.0) / 128.0
+    else:
+        x = np.zeros(0, dtype=np.float32)
+    if ch > 1:
+        x = x.reshape(-1, ch).mean(axis=1)
+    return x, sr
 
 
 def _segments_to_dicts(segments) -> list[dict]:

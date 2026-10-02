@@ -100,7 +100,7 @@ class MainWindow(QMainWindow):
         about.setFixedHeight(34)
         about.clicked.connect(self._show_about)
         v.addWidget(about)
-        ver = QLabel("v1.1.0 · 本地运行")
+        ver = QLabel("v1.1.1 · 本地运行")
         ver.setStyleSheet("color: #5a5a6e; font-size: 11px; background: transparent;")
         v.addWidget(ver)
         return w

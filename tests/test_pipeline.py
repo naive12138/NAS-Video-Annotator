@@ -57,7 +57,8 @@ class PipelineTest(unittest.TestCase):
              mock.patch.object(P.media, "extract_frames",
                                side_effect=lambda p, d, t: [Path(d) / f"f{i}.jpg" for i in range(len(t))]), \
              mock.patch.object(P.media, "extract_audio", return_value=Path("x.wav")), \
-             mock.patch.object(pipe, "_describe_frame", return_value=("夜景街头", 2)):
+             mock.patch.object(pipe, "_describe_frame",
+                               return_value=("夜景街头", 2, '{"description": "夜景街头，两人追逐", "people": 2}')):
             ann = pipe.run(video)
 
         self.assertEqual(ann["genre"], "悬疑")

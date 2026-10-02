@@ -36,12 +36,14 @@ DEFAULTS: dict[str, Any] = {
         "frames_per_scene": 2,
         "scene_threshold": 27.0,
         "max_frames": 200,
+        "max_scene_chars": 16000,
     },
     "output": {
         "txt_name": "简介{filename}.txt",  # "简介" 二字固定，{filename} 写时替换
         "txt_mode": "new",                # "append" | "new"
         "txt_encoding": "utf-8-sig",
         "local_mode": "nfo_first",        # 本地源回写方式："nfo_first"=优先NFO(无则txt) | "txt_only"=仅txt
+        "debug_text": False,              # 参考文本测试：分析时在软件目录输出实时文本
     },
     "storage": {
         "data_dir": "",
@@ -179,6 +181,7 @@ class Config:
             ("analysis", "frames_per_scene"),
             ("analysis", "scene_threshold"),
             ("analysis", "max_frames"),
+            ("analysis", "max_scene_chars"),
             ("runtime", "workers"),
             ("ollama", "timeout_s"),
             ("ollama", "generate_timeout_s"),
@@ -187,7 +190,7 @@ class Config:
                 v = d[sec][key]
                 if not (isinstance(v, (int, float)) and v > 0):
                     raise ValueError
-                if key in ("frames_per_scene", "workers", "max_frames") and isinstance(v, float):
+                if key in ("frames_per_scene", "workers", "max_frames", "max_scene_chars") and isinstance(v, float):
                     d[sec][key] = int(v)
             except (KeyError, ValueError, TypeError):
                 d[sec][key] = DEFAULTS[sec][key]

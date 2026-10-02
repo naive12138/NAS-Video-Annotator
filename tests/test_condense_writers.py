@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 from core.condense import condense  # noqa: E402
 from core.config import Config  # noqa: E402
 from core.sources.base import VideoSource  # noqa: E402
-from core.writers import TxtWriter, NfoWriter, JellyfinWriter, writer_for  # noqa: E402
+from core.writers import TxtWriter, NfoWriter, JellyfinWriter, writer_for, find_nfos  # noqa: E402
 
 
 def _tmp():
@@ -72,6 +72,35 @@ class TxtWriterTest(unittest.TestCase):
         self.assertIn("新", content)
 
 
+class FindNfosTest(unittest.TestCase):
+    def test_both_nfos(self):
+        d = _fresh_subdir("find_both")
+        v = VideoSource("local", os.path.join(d, "a.mp4"), "a")
+        for name in ("movie.nfo", "a.nfo"):
+            with open(os.path.join(d, name), "w", encoding="utf-8") as f:
+                f.write("<movie></movie>")
+        self.assertEqual(sorted(p.name for p in find_nfos(v)), ["a.nfo", "movie.nfo"])
+
+    def test_only_movie_nfo(self):
+        d = _fresh_subdir("find_movie")
+        v = VideoSource("local", os.path.join(d, "a.mp4"), "a")
+        with open(os.path.join(d, "movie.nfo"), "w", encoding="utf-8") as f:
+            f.write("<movie></movie>")
+        self.assertEqual([p.name for p in find_nfos(v)], ["movie.nfo"])
+
+    def test_only_sidecar(self):
+        d = _fresh_subdir("find_sidecar")
+        v = VideoSource("local", os.path.join(d, "a.mp4"), "a")
+        with open(os.path.join(d, "a.nfo"), "w", encoding="utf-8") as f:
+            f.write("<movie></movie>")
+        self.assertEqual([p.name for p in find_nfos(v)], ["a.nfo"])
+
+    def test_none(self):
+        d = _fresh_subdir("find_none")
+        v = VideoSource("local", os.path.join(d, "a.mp4"), "a")
+        self.assertEqual(find_nfos(v), [])
+
+
 class NfoWriterTest(unittest.TestCase):
     def setUp(self):
         self.dir = _fresh_subdir("nfow")
@@ -90,14 +119,26 @@ class NfoWriterTest(unittest.TestCase):
             "<tag>x</tag></movie>"
         )
         w = NfoWriter()
-        r = w.write(self.video, {"one_line": "一句话"}, "新剧情")
+        r = w.write(self.video, {"summary": "新剧情", "one_line": "一句话"}, "x")
         self.assertTrue(r.ok)
         with open(os.path.join(self.dir, "movie.nfo"), encoding="utf-8") as f:
             content = f.read()
-        self.assertIn("新剧情", content)
-        self.assertIn("一句话", content)
+        self.assertIn("新剧情", content)   # <plot> 写纯剧情
+        self.assertIn("一句话", content)   # <outline> 写一句话
         self.assertIn("旧标题", content)
         self.assertIn("<tag>x</tag>", content)
+
+    def test_writes_both_nfos(self):
+        v = VideoSource("local", os.path.join(self.dir, "a.mp4"), "a")
+        for name in ("movie.nfo", "a.nfo"):
+            with open(os.path.join(self.dir, name), "w", encoding="utf-8") as f:
+                f.write("<movie><title>旧</title></movie>")
+        w = NfoWriter()
+        r = w.write(v, {"summary": "新剧情"}, "x")
+        self.assertTrue(r.ok)
+        for name in ("movie.nfo", "a.nfo"):
+            with open(os.path.join(self.dir, name), encoding="utf-8") as f:
+                self.assertIn("新剧情", f.read())
 
     def test_no_nfo_skips(self):
         w = NfoWriter()

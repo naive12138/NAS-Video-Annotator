@@ -4,7 +4,7 @@ from pathlib import Path
 
 from .base import ResultWriter, WriteResult
 from .txt_writer import TxtWriter
-from .nfo_writer import NfoWriter
+from .nfo_writer import NfoWriter, find_nfos
 from .jellyfin_writer import JellyfinWriter
 
 
@@ -19,8 +19,7 @@ def writer_for(cfg, video) -> ResultWriter:
 
     local_mode = cfg.output.get("local_mode", "nfo_first")
     if local_mode == "nfo_first":
-        nfo_path = Path(video.file_path).with_suffix(".nfo")
-        if nfo_path.exists():
+        if find_nfos(video):
             return NfoWriter()
     return TxtWriter(
         name_template=cfg.output["txt_name"],

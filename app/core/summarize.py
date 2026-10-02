@@ -15,11 +15,15 @@ VISION_PROMPT = (
     '"people": 画面里的人数(整数，没看到人就填0)}'
 )
 
+TRANSLATE_PROMPT = (
+    "把下面的文本翻译成中文，只输出译文本身，不要任何解释、说明或前缀：\n\n{text}"
+)
+
 
 def build_summary_prompt(scene_descriptions: list[str],
                          transcript_text: str = "",
                          max_chars: int = 6000,
-                         max_scene_chars: int = 8000,
+                         max_scene_chars: int = 16000,
                          audio_clue: str = "") -> str:
     parts: list[str] = []
     if scene_descriptions:
@@ -120,9 +124,9 @@ def parse_vision(raw: str) -> tuple[str, int | None]:
 
 def summarize(scene_descriptions: list[str], transcript_text: str,
               llm: Callable[[str], str], max_chars: int = 6000,
-              audio_clue: str = "") -> dict:
+              audio_clue: str = "", max_scene_chars: int = 16000) -> dict:
     prompt = build_summary_prompt(scene_descriptions, transcript_text, max_chars,
-                                  audio_clue=audio_clue)
+                                  max_scene_chars=max_scene_chars, audio_clue=audio_clue)
     return parse_annotation(llm(prompt))
 
 
@@ -154,3 +158,35 @@ def _to_float(v) -> float:
         return float(v)
     except (TypeError, ValueError):
         return 0.0
+
+
+def is_chinese_text(text: str) -> bool:
+    """粗略判断文本是否为中文：含日文假名视为非中文；含中文汉字且无假名视为中文。"""
+    text = (text or "").strip()
+    if not text:
+        return True
+    if any('\u3040' <= c <= '\u30ff' for c in text):      # 日文平/片假名
+        return False
+    if any('\u4e00' <= c <= '\u9fff' for c in text):      # 中文汉字
+        return True
+    return False
+
+
+def translate_to_chinese(text: str, llm: Callable[[str], str]) -> str:
+    """把文本翻译成中文（本地 LLM），返回译文。"""
+    prompt = TRANSLATE_PROMPT.format(text=text)
+    return (llm(prompt) or "").strip()
+
+
+TRANSCRIPT_SUMMARY_PROMPT = (
+    "把下面的字幕/对白内容总结成一段简短的中文剧情概括，尽量精简、抓住主线，"
+    "只输出概括文字本身，不要任何解释或前缀：\n\n{text}"
+)
+
+
+def summarize_transcript(text: str, llm: Callable[[str], str]) -> str:
+    """把（翻译后的）音频文本总结成简短剧情概括，缓解上下文过长问题。"""
+    if not (text or "").strip():
+        return ""
+    prompt = TRANSCRIPT_SUMMARY_PROMPT.format(text=text)
+    return (llm(prompt) or "").strip()

@@ -129,7 +129,7 @@ class Pipeline:
         store = self.store
         self._check_cancel()
 
-        # 0. 提前抽音轨（供方案 A/B 音频分析，并复用给后续 ASR）
+        # 0. 提前抽音轨（供方案 A/B 音频分析 + ASR + 翻译复用）
         audio_path = None
         silent_times: list[float] = []
         try:
@@ -145,40 +145,25 @@ class Pipeline:
             audio_path, silent_times = None, []
         self._progress(on_progress, 10, self._stage(video, "音频分析"))
 
-        # 1. 场景切分（方案 A：用音频停顿合并被误切的快剪场景）
-        scenes = media.detect_scenes(self._media_src(video), cfg.analysis["scene_threshold"])
-        if silent_times:
-            scenes = audio_analysis.merge_scenes_by_audio(scenes, silent_times)
-        store.save_scenes([
-            {"video_id": vid, "run_id": run_id, "scene_index": i,
-             "start_sec": s, "end_sec": e}
-            for i, (s, e) in enumerate(scenes)
-        ])
-        self._progress(on_progress, 15, self._stage(video, "场景切分"))
+        # 1. 音频转写 + 翻译（提前到场景切片之前，便于快速测试/看到结果）
+        transcript_text, transcript_segments, asr_info = self._transcribe(video, vid, run_id, audio_path)
+        transcript_zh = ""
+        if transcript_text and not summarize.is_chinese_text(transcript_text):
+            try:
+                transcript_zh = summarize.translate_to_chinese(transcript_text, self._llm)
+            except Exception:
+                transcript_zh = ""
+        self._save_transcript_files(vid, transcript_text, transcript_zh)
+        summary_transcript = transcript_zh or transcript_text  # 汇总用中文
 
-        # 2. 抽帧（场景代表帧 + 均匀帧）
-        times = self._frame_times(scenes, duration)
-        out_dir = cfg.storage_path("frame_cache_dir") / str(vid)
-        frame_paths = media.extract_frames(self._media_src(video), out_dir, times)
-        self._progress(on_progress, 25, self._stage(video, "抽帧"))
-
-        # 3. 视觉理解（逐帧）：描述 + 人数，均由本地视觉 LLM 产出
-        scene_descriptions: list[str] = []
-        people_counts: list[int | None] = []
-        total = max(len(frame_paths), 1)
-        for i, fp in enumerate(frame_paths):
-            self._check_cancel()
-            self._progress(on_progress, 30 + int(55 * i / total), f"AI 分析第 {i + 1}/{total} 帧")
-            desc, n = self._describe_frame(fp)
-            scene_descriptions.append(desc)
-            people_counts.append(n)
-            store.save_frames([{
-                "video_id": vid, "scene_id": None, "image_path": str(fp),
-                "description": desc, "people_count": n,
-            }])
-
-        # 4. 转写（复用已抽的音轨）
-        transcript_text, transcript_segments = self._transcribe(video, vid, run_id, audio_path)
+        # 1.1 把长字幕总结成简短剧情概括，缓解上下文过长导致的 bug
+        transcript_summary = ""
+        if summary_transcript:
+            try:
+                transcript_summary = summarize.summarize_transcript(summary_transcript, self._llm)
+            except Exception:
+                transcript_summary = ""
+        final_transcript = transcript_summary or summary_transcript  # 参与最终汇总
 
         # 方案 B：音频结构文字线索（静音 + 对白分布 → 辅助识别片头片尾）
         audio_clue = ""
@@ -191,11 +176,51 @@ class Pipeline:
         except Exception:
             audio_clue = ""
 
-        # 5. 汇总
+        self._write_debug_file(video, transcript_text, transcript_zh, [], asr_info, transcript_summary)
+        self._progress(on_progress, 15, self._stage(video, "音频转写"))
+
+        # 2. 场景切分（方案 A：用音频停顿合并被误切的快剪场景）
+        scenes = media.detect_scenes(self._media_src(video), cfg.analysis["scene_threshold"])
+        if silent_times:
+            scenes = audio_analysis.merge_scenes_by_audio(scenes, silent_times)
+        store.save_scenes([
+            {"video_id": vid, "run_id": run_id, "scene_index": i,
+             "start_sec": s, "end_sec": e}
+            for i, (s, e) in enumerate(scenes)
+        ])
+        self._progress(on_progress, 20, self._stage(video, "场景切分"))
+
+        # 3. 抽帧（场景代表帧 + 均匀帧）
+        times = self._frame_times(scenes, duration)
+        out_dir = cfg.storage_path("frame_cache_dir") / str(vid)
+        frame_paths = media.extract_frames(self._media_src(video), out_dir, times)
+        self._progress(on_progress, 25, self._stage(video, "抽帧"))
+
+        # 4. 视觉理解（逐帧）：描述 + 人数，均由本地视觉 LLM 产出；同时留存模型原文供调试文本
+        scene_descriptions: list[str] = []
+        people_counts: list[int | None] = []
+        image_raws: list[str] = []
+        total = max(len(frame_paths), 1)
+        for i, fp in enumerate(frame_paths):
+            self._check_cancel()
+            self._progress(on_progress, 30 + int(55 * i / total), f"AI 分析第 {i + 1}/{total} 帧")
+            desc, n, raw = self._describe_frame(fp)
+            scene_descriptions.append(desc)
+            people_counts.append(n)
+            image_raws.append(raw)
+            store.save_frames([{
+                "video_id": vid, "scene_id": None, "image_path": str(fp),
+                "description": desc, "people_count": n,
+            }])
+            # 实时输出图片理解原文（若开启参考文本测试）
+            self._write_debug_file(video, transcript_text, transcript_zh, image_raws, asr_info, transcript_summary)
+
+        # 5. 汇总（字幕用简短剧情概括，避免上下文过长）
         self._check_cancel()
         self._progress(on_progress, 85, "汇总剧情")
         annotation = summarize.summarize(
-            scene_descriptions, transcript_text, self._llm, audio_clue=audio_clue
+            scene_descriptions, final_transcript, self._llm, audio_clue=audio_clue,
+            max_scene_chars=int(cfg.analysis.get("max_scene_chars", 16000)),
         )
         counts = [c for c in people_counts if c is not None]
         if counts:
@@ -223,18 +248,19 @@ class Pipeline:
             times = [times[i] for i in sorted(idxs)]
         return times
 
-    def _describe_frame(self, frame_path) -> tuple[str, int | None]:
+    def _describe_frame(self, frame_path) -> tuple[str, int | None, str]:
         data = base64.b64encode(Path(frame_path).read_bytes()).decode("ascii")
         resp = self.client.generate(self.cfg.models["vision"], summarize.VISION_PROMPT, images=[data])
         raw = resp.get("response", "") if isinstance(resp, dict) else str(resp)
-        return summarize.parse_vision(raw)
+        desc, n = summarize.parse_vision(raw)
+        return desc, n, raw
 
     def _llm(self, prompt: str) -> str:
         resp = self.client.generate(self.cfg.models["llm"], prompt)
         return resp.get("response", "") if isinstance(resp, dict) else str(resp)
 
     def _transcribe(self, video: VideoSource, vid: int, run_id: int,
-                    audio_path=None) -> tuple[str, list]:
+                    audio_path=None) -> tuple[str, list, dict]:
         try:
             if audio_path is None:
                 audio_path = media.extract_audio(
@@ -242,11 +268,18 @@ class Pipeline:
                     self.cfg.storage_path("frame_cache_dir") / str(vid) / "audio.wav",
                 )
             model_path = self.cfg.asr_model_path(self.cfg.models["asr"])
-            segments = self.transcribe(str(audio_path), str(model_path))
+            result = self.transcribe(str(audio_path), str(model_path))
         except Exception as e:
             # 转写失败不阻断整体分析（见计划书 §10）
             self.store.record_error(vid, "asr", traceback.format_exc(), video.file_path)
-            return "", []
+            return "", [], {"error": f"{type(e).__name__}: {e}"}
+        # 兼容返回 (segments, info) 或仅 segments
+        if isinstance(result, tuple):
+            segments, info = result
+        else:
+            segments, info = result, {}
+        info = dict(info) if isinstance(info, dict) else {}
+        info["segments"] = len(segments)
         # 转写成功：清除该视频旧的 asr 失败标记（重新分析后不再标注“音频转换失败”）
         self.store.delete_errors(vid, "asr")
         self.store.save_transcripts([
@@ -254,7 +287,54 @@ class Pipeline:
              "end_sec": s["end"], "text": s["text"]}
             for s in segments
         ])
-        return "\n".join(s["text"] for s in segments), segments
+        return "\n".join(s["text"] for s in segments), segments, info
+
+    def _save_transcript_files(self, vid: int, original: str, translated: str) -> None:
+        """把翻译前后的音频文本临时写到切片目录（分析完随帧缓存一并清理）。"""
+        try:
+            d = self.cfg.storage_path("frame_cache_dir") / str(vid)
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "transcript_original.txt").write_text(original, encoding="utf-8")
+            (d / "transcript_zh.txt").write_text(translated, encoding="utf-8")
+        except Exception:
+            pass
+
+    def _write_debug_file(self, video: VideoSource, audio_original: str,
+                          audio_zh: str, image_raws: list[str],
+                          asr_info: dict | None = None,
+                          transcript_summary: str = "") -> None:
+        """参考文本测试：在软件目录实时输出 测试{视频名}.txt。"""
+        if not self.cfg.output.get("debug_text"):
+            return
+        try:
+            name = video.title or Path(video.file_path).stem
+            dest = self.cfg.storage_path("data_dir").parent / f"测试{name}.txt"
+            lines = [
+                f"音频文本原文：{audio_original if audio_original else '（无内容）'}",
+                f"音频文本译文：{audio_zh}",
+            ]
+            if transcript_summary:
+                lines.append(f"音频剧情概括：{transcript_summary}")
+            if asr_info and asr_info.get("error"):
+                lines.append(f"音频识别信息：错误={asr_info['error']}")
+            elif asr_info:
+                lang = asr_info.get("language") or "?"
+                n = asr_info.get("segments")
+                audio_s = asr_info.get("audio_seconds")
+                audio_str = f"音频 {audio_s:.0f}秒" if isinstance(audio_s, (int, float)) else "音频 ?秒"
+                mb = asr_info.get("model_size_mb")
+                mb_str = f"，模型 {mb}MB" if isinstance(mb, (int, float)) else ""
+                seg_s = f"{n} 个" if isinstance(n, int) else "?"
+                lines.append(f"音频识别信息：语言={lang}，{audio_str}，识别片段={seg_s}{mb_str}")
+            else:
+                lines.append("音频识别信息：未执行")
+            if image_raws:
+                lines.append("图片理解文本：")
+                for i, t in enumerate(image_raws, 1):
+                    lines.append(f"图片{i}：{t}")
+            dest.write_text("\n".join(lines), encoding="utf-8")
+        except Exception:
+            pass
 
     # ---- 回写 ----
     def _writeback(self, video: VideoSource, vid: int, annotation: dict) -> None:

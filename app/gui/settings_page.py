@@ -6,7 +6,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFormLayout, QGroupBox,
     QLabel, QLineEdit, QComboBox, QPushButton, QRadioButton, QStackedWidget,
-    QFileDialog, QButtonGroup,
+    QFileDialog, QButtonGroup, QCheckBox,
 )
 
 from core import ffmpeg as _ffmpeg
@@ -138,13 +138,17 @@ class SettingsPage(QWidget):
         ap = QGroupBox("分析参数")
         ag = QGridLayout(ap); ag.setHorizontalSpacing(16)
         self.param_edits = {}
-        for i, key in enumerate(["frame_interval_s", "frames_per_scene", "scene_threshold", "max_frames"]):
+        for i, key in enumerate(["frame_interval_s", "frames_per_scene", "scene_threshold", "max_frames", "max_scene_chars"]):
             lab = QLabel({"frame_interval_s": "抽帧间隔(秒)", "frames_per_scene": "每场景帧数",
-                          "scene_threshold": "场景阈值", "max_frames": "最大帧数"}[key])
+                          "scene_threshold": "场景阈值", "max_frames": "最大帧数",
+                          "max_scene_chars": "场景文字上限"}[key])
             ed = QLineEdit()
             self.param_edits[key] = ed
             box = QVBoxLayout(); box.setSpacing(6); box.addWidget(lab); box.addWidget(ed)
             ag.addLayout(box, 0, i)
+        self.debug_text_check = QCheckBox("文本开发测试按钮")
+        self.debug_text_check.setToolTip("开启后，分析时会在软件目录实时输出 测试{视频名}.txt")
+        ag.addWidget(self.debug_text_check, 1, 0, 1, 5)
         grid.addWidget(ap, 2, 0, 1, 2)
 
         # FFmpeg 状态 + 一键下载
@@ -213,6 +217,7 @@ class SettingsPage(QWidget):
         self.timeout_edit.setText(str(c.ollama.get("generate_timeout_s", 600)))
         for key, ed in self.param_edits.items():
             ed.setText(str(c.analysis[key]))
+        self.debug_text_check.setChecked(bool(c.output.get("debug_text", False)))
         self.status_label.setText("")
         self.refresh_ffmpeg_status()
         self.refresh_asr_status()
@@ -230,6 +235,7 @@ class SettingsPage(QWidget):
         c._data["output"]["txt_name"] = self.txt_name.text().strip() or "简介{filename}.txt"
         c._data["output"]["txt_mode"] = "append" if self.txt_append.isChecked() else "new"
         c._data["output"]["local_mode"] = "nfo_first" if self.r_nfo_first.isChecked() else "txt_only"
+        c._data["output"]["debug_text"] = self.debug_text_check.isChecked()
         c._data["local_paths"]["roots"] = [self.root_edit.text().strip()] if self.root_edit.text().strip() else []
         c._data["jellyfin"]["enabled"] = self.r_jf.isChecked()
         c._data["jellyfin"]["base_url"] = self.jf_url.text().strip()
