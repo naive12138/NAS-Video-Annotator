@@ -96,10 +96,11 @@ def download_model(cfg, model_name: str, on_progress=None) -> Path:
 
 
 def transcribe(audio_path: str | Path, model_path: str | Path,
-               device: str = "cpu", compute_type: str = "int8") -> tuple[list[dict], dict]:
+               device: str = "cpu", compute_type: str | None = None) -> tuple[list[dict], dict]:
     """转写音轨，返回 (片段列表, 识别信息)。
 
-    片段列表形如 [{"start": s, "end": e, "text": t}, ...]；识别信息含 language/duration。
+    片段列表形如 [{"start": s, "end": e, "text": t}, ...]；识别信息含 language/duration/device。
+    device 为 'cpu' 或 'cuda'；compute_type 为 None 时按设备自动选择。
     model_path 为本地模型目录；未下载时抛 ASRError，由上层静默跳过。
     """
     try:
@@ -107,14 +108,32 @@ def transcribe(audio_path: str | Path, model_path: str | Path,
     except ImportError as e:
         raise ASRError("未安装 faster-whisper") from e
 
+    if compute_type is None:
+        compute_type = "float16" if device == "cuda" else "int8"
+
     p = Path(model_path)
     if not (p / "model.bin").exists():
         raise ASRError(f"ASR 模型未下载（{p}），请在“设置”页下载")
 
     # 自己读 WAV 成 float32 数组，绕开 av 解码（av 版本兼容问题可能把音频读成静音）
     samples, sample_rate = _read_wav_samples(str(audio_path))
-    model = WhisperModel(str(p), device=device, compute_type=compute_type)
-    segments, info = model.transcribe(samples)
+
+    def _load(dev: str, ct: str):
+        return WhisperModel(str(p), device=dev, compute_type=ct)
+
+    used_device = device
+    try:
+        model = _load(device, compute_type)
+        segments, info = model.transcribe(samples)
+    except Exception:
+        # GPU 不可用/初始化失败时回退 CPU，避免整个转写失败
+        if device != "cpu":
+            used_device = "cpu"
+            model = _load("cpu", "int8")
+            segments, info = model.transcribe(samples)
+        else:
+            raise
+
     segs = _segments_to_dicts(segments)
     model_bin = p / "model.bin"
     model_mb = round(model_bin.stat().st_size / (1024 * 1024), 1) if model_bin.exists() else 0.0
@@ -124,6 +143,7 @@ def transcribe(audio_path: str | Path, model_path: str | Path,
         "duration": getattr(info, "duration", None),
         "audio_seconds": round(len(samples) / sample_rate, 2) if sample_rate else 0.0,
         "model_size_mb": model_mb,
+        "device": used_device,
     }
     return segs, info_dict
 

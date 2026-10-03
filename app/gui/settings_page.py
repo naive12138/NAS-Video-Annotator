@@ -68,8 +68,13 @@ class SettingsPage(QWidget):
         self.asr_combo = self._combo()
         mf.addRow("视觉模型", self.vision_combo)
         mf.addRow("文本模型", self.llm_combo)
+        self.asr_enabled_check = QCheckBox("音频转写（注意:如果你觉得转写环节太慢就关闭它，对结果会产生部分影响）")
+        mf.addRow("", self.asr_enabled_check)
         asr_row = QHBoxLayout(); asr_row.setSpacing(8)
         asr_row.addWidget(self.asr_combo, 1)
+        self.asr_gpu_check = QCheckBox("GPU 转写")
+        self.asr_gpu_check.setToolTip("有 NVIDIA 显卡时勾选，用 CUDA 加速语音转写；不可用会自动回退 CPU")
+        asr_row.addWidget(self.asr_gpu_check)
         self.asr_download_btn = QPushButton("下载模型")
         self.asr_download_btn.clicked.connect(self.on_asr_download)
         asr_row.addWidget(self.asr_download_btn)
@@ -203,6 +208,8 @@ class SettingsPage(QWidget):
         self.vision_combo.setCurrentText(c.models["vision"])
         self.llm_combo.setCurrentText(c.models["llm"])
         self.asr_combo.setCurrentText(c.models["asr"])
+        self.asr_gpu_check.setChecked(c.models.get("asr_device") == "cuda")
+        self.asr_enabled_check.setChecked(bool(c.models.get("asr_enabled", True)))
         self.txt_name.setText(c.output["txt_name"])
         (self.txt_append if c.output["txt_mode"] == "append" else self.txt_new).setChecked(True)
         if c.jellyfin.get("enabled") or c.local_paths.get("roots"):
@@ -232,6 +239,8 @@ class SettingsPage(QWidget):
         c._data["models"]["vision"] = self.vision_combo.currentText().strip()
         c._data["models"]["llm"] = self.llm_combo.currentText().strip()
         c._data["models"]["asr"] = self.asr_combo.currentText().strip()
+        c._data["models"]["asr_device"] = "cuda" if self.asr_gpu_check.isChecked() else "cpu"
+        c._data["models"]["asr_enabled"] = self.asr_enabled_check.isChecked()
         c._data["output"]["txt_name"] = self.txt_name.text().strip() or "简介{filename}.txt"
         c._data["output"]["txt_mode"] = "append" if self.txt_append.isChecked() else "new"
         c._data["output"]["local_mode"] = "nfo_first" if self.r_nfo_first.isChecked() else "txt_only"

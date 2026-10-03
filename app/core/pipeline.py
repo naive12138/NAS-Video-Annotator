@@ -145,30 +145,41 @@ class Pipeline:
             audio_path, silent_times = None, []
         self._progress(on_progress, 10, self._stage(video, "音频分析"))
 
-        # 1. 音频转写 + 翻译（提前到场景切片之前，便于快速测试/看到结果）
-        transcript_text, transcript_segments, asr_info = self._transcribe(video, vid, run_id, audio_path)
+        transcript_text = ""
+        transcript_segments: list = []
+        asr_info: dict = {}
         transcript_zh = ""
-        if transcript_text and not summarize.is_chinese_text(transcript_text):
-            try:
-                transcript_zh = summarize.translate_to_chinese(transcript_text, self._llm)
-            except Exception:
-                transcript_zh = ""
-        self._save_transcript_files(vid, transcript_text, transcript_zh)
-        summary_transcript = transcript_zh or transcript_text  # 汇总用中文
-
-        # 1.1 把长字幕总结成简短剧情概括，缓解上下文过长导致的 bug
         transcript_summary = ""
-        if summary_transcript:
-            try:
-                transcript_summary = summarize.summarize_transcript(summary_transcript, self._llm)
-            except Exception:
-                transcript_summary = ""
-        final_transcript = transcript_summary or summary_transcript  # 参与最终汇总
+        if self.cfg.models.get("asr_enabled", True):
+            # 1. 音频转写（whisper，长视频在 CPU 上最耗时，就是这一步在跑）
+            self._progress(on_progress, 12, self._stage(video, "音频转写中…"))
+            transcript_text, transcript_segments, asr_info = self._transcribe(video, vid, run_id, audio_path)
+
+            # 1.1 翻译（非中文 → 中文）
+            self._progress(on_progress, 13, self._stage(video, "音频翻译中…"))
+            transcript_zh = ""
+            if transcript_text and not summarize.is_chinese_text(transcript_text):
+                try:
+                    transcript_zh = summarize.translate_to_chinese(transcript_text, self._llm)
+                except Exception:
+                    transcript_zh = ""
+            self._save_transcript_files(vid, transcript_text, transcript_zh)
+            summary_transcript = transcript_zh or transcript_text  # 汇总用中文
+
+            # 1.2 把长字幕总结成简短剧情概括，缓解上下文过长导致的 bug
+            self._progress(on_progress, 14, self._stage(video, "剧情概括中…"))
+            transcript_summary = ""
+            if summary_transcript:
+                try:
+                    transcript_summary = summarize.summarize_transcript(summary_transcript, self._llm)
+                except Exception:
+                    transcript_summary = ""
+        final_transcript = transcript_summary or transcript_zh or transcript_text  # 参与最终汇总
 
         # 方案 B：音频结构文字线索（静音 + 对白分布 → 辅助识别片头片尾）
         audio_clue = ""
         try:
-            if silent_times:
+            if silent_times and transcript_segments:
                 speech = [(s["start"], s["end"]) for s in transcript_segments]
                 audio_clue = audio_analysis.build_audio_clue(
                     audio_analysis.silence_segments(silent_times), speech, duration
@@ -177,7 +188,7 @@ class Pipeline:
             audio_clue = ""
 
         self._write_debug_file(video, transcript_text, transcript_zh, [], asr_info, transcript_summary)
-        self._progress(on_progress, 15, self._stage(video, "音频转写"))
+        self._progress(on_progress, 15, self._stage(video, "音频转写完成"))
 
         # 2. 场景切分（方案 A：用音频停顿合并被误切的快剪场景）
         scenes = media.detect_scenes(self._media_src(video), cfg.analysis["scene_threshold"])
@@ -268,7 +279,8 @@ class Pipeline:
                     self.cfg.storage_path("frame_cache_dir") / str(vid) / "audio.wav",
                 )
             model_path = self.cfg.asr_model_path(self.cfg.models["asr"])
-            result = self.transcribe(str(audio_path), str(model_path))
+            device = self.cfg.models.get("asr_device", "cpu")
+            result = self.transcribe(str(audio_path), str(model_path), device=device)
         except Exception as e:
             # 转写失败不阻断整体分析（见计划书 §10）
             self.store.record_error(vid, "asr", traceback.format_exc(), video.file_path)

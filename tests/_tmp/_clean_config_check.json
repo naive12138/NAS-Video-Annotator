@@ -1,0 +1,33 @@
+{
+  "ollama": {
+    "base_url": "http://127.0.0.1:11434",
+    "timeout_s": 3
+  },
+  "models": {
+    "vision": "qwen2.5vl:7b",
+    "llm": "qwen2.5:7b",
+    "asr": "small"
+  },
+  "local_paths": {
+    "roots": []
+  },
+  "jellyfin": {
+    "enabled": false,
+    "base_url": "http://192.168.1.10:8096",
+    "api_key": ""
+  },
+  "analysis": {
+    "frame_interval_s": 60,
+    "frames_per_scene": 2,
+    "scene_threshold": 27.0
+  },
+  "output": {
+    "txt_name": "简介{filename}.txt",
+    "txt_mode": "new",
+    "txt_encoding": "utf-8-sig",
+    "local_mode": "nfo_first"
+  },
+  "runtime": {
+    "workers": 1
+  }
+}

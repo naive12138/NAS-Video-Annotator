@@ -49,7 +49,7 @@ class PipelineTest(unittest.TestCase):
         pipe = P.Pipeline(
             self.cfg, self.store,
             client=FakeClient(),
-            transcribe=lambda p, m="small": [{"start": 0, "end": 1, "text": "你好"}],
+            transcribe=lambda p, m="small", device="cpu": [{"start": 0, "end": 1, "text": "你好"}],
         )
 
         with mock.patch.object(P.media, "probe", return_value={"duration_sec": 10.0}), \

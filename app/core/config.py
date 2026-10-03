@@ -22,6 +22,8 @@ DEFAULTS: dict[str, Any] = {
         "vision": "qwen2.5vl:7b",
         "llm": "qwen2.5:7b",
         "asr": "small",
+        "asr_device": "cpu",   # ASR 转写设备：'cpu' | 'cuda'
+        "asr_enabled": True,   # 是否启用音频转写
     },
     "local_paths": {
         "roots": [],
@@ -194,6 +196,11 @@ class Config:
                     d[sec][key] = int(v)
             except (KeyError, ValueError, TypeError):
                 d[sec][key] = DEFAULTS[sec][key]
+
+        # ASR 设备校验
+        if d["models"].get("asr_device") not in ("cpu", "cuda"):
+            d["models"]["asr_device"] = DEFAULTS["models"]["asr_device"]
+        d["models"]["asr_enabled"] = bool(d["models"].get("asr_enabled", True))
 
         # URL 校验
         for sec, key in [("ollama", "base_url"), ("jellyfin", "base_url")]:
