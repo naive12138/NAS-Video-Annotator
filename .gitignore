@@ -2,3 +2,7 @@
 __pycache__/
 /build/
 /dist
+tests/_tmp/
+*.spec
+.pytest_cache/
+*.pyc

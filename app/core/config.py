@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """配置中心：软件内唯一的配置读写入口。
 
 规则（见计划书 §2）：
@@ -30,7 +30,7 @@ DEFAULTS: dict[str, Any] = {
     },
     "jellyfin": {
         "enabled": False,
-        "base_url": "http://192.168.1.10:8096",
+        "base_url": "http://127.0.0.1:8096",
         "api_key": "",
     },
     "analysis": {
